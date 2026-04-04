@@ -1,6 +1,5 @@
 import os
 import sys
-import uuid
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -18,7 +17,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.runner.livekit import generate_token
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.openai.llm import OpenAILLMService
@@ -35,35 +33,6 @@ transport_params = {
         audio_out_enabled=True,
     ),
 }
-
-
-def _sanitize_livekit_room_name(value: str) -> str:
-    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in value.strip().lower())
-    safe = "-".join(part for part in safe.split("-") if part)
-    if not safe:
-        safe = "voice-room"
-    return safe[:64]
-
-
-def _build_livekit_token(room: str, identity: str, ttl_seconds: int) -> str:
-    api_key = os.getenv("LIVEKIT_API_KEY")
-    api_secret = os.getenv("LIVEKIT_API_SECRET")
-    if not api_key or not api_secret:
-        raise RuntimeError("LIVEKIT_API_KEY/LIVEKIT_API_SECRET are required")
-
-    try:
-        token = generate_token(
-            api_key=api_key,
-            api_secret=api_secret,
-            room_name=room,
-            participant_name=identity,
-            ttl=ttl_seconds,
-        )
-    except TypeError:
-        # Compatibility fallback for older/newer Pipecat signatures.
-        token = generate_token(api_key, api_secret, room, identity, ttl_seconds)
-
-    return token
 
 
 def build_system_instruction() -> str:
@@ -191,55 +160,6 @@ if __name__ == "__main__":
     print(f"Resolved port   : {port}")
     print(f"Initial argv    : {sys.argv}")
     print("====================================")
-
-    # Register health route if Pipecat exposes the FastAPI app object.
-    try:
-        from fastapi import HTTPException
-
-        import pipecat.runner.run as runner_run
-
-        runner_app = getattr(runner_run, "app", None)
-        if runner_app is not None:
-
-            @runner_app.get("/health", include_in_schema=False)
-            async def healthcheck():
-                return {
-                    "status": "ok",
-                    "port": port,
-                }
-
-            @runner_app.get("/livekit/token", include_in_schema=False)
-            async def livekit_token(
-                session: str,
-                identity: str | None = None,
-                ttl_seconds: int | None = None,
-            ):
-                room = _sanitize_livekit_room_name(session)
-                token_identity = _sanitize_livekit_room_name(identity or str(uuid.uuid4()))
-                ttl = ttl_seconds or int(os.getenv("LIVEKIT_TOKEN_TTL_SECONDS", "900"))
-
-                if ttl < 60 or ttl > 3600:
-                    raise HTTPException(status_code=400, detail="ttl_seconds must be between 60 and 3600")
-
-                try:
-                    token = _build_livekit_token(room=room, identity=token_identity, ttl_seconds=ttl)
-                except RuntimeError as exc:
-                    raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-                return {
-                    "url": os.getenv("LIVEKIT_URL"),
-                    "room": room,
-                    "identity": token_identity,
-                    "token": token,
-                    "ttl_seconds": ttl,
-                }
-
-            print("Health route registered at /health")
-            print("LiveKit token route registered at /livekit/token")
-        else:
-            print("Pipecat runner app not exposed; /health route not registered")
-    except Exception as e:
-        print(f"Health route registration skipped: {e}")
 
     ensure_cli_arg("--host", host)
     ensure_cli_arg("--port", str(port))
