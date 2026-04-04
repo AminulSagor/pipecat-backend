@@ -5,7 +5,7 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
 ## Configuration
 
 - **Bot Type**: Web
-- **Transport(s)**: SmallWebRTC
+- **Transport(s)**: LiveKit
 - **Pipeline**: Cascade
   - **STT**: OpenAI (Whisper)
   - **LLM**: OpenAI
@@ -15,46 +15,57 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
 
 ### Server
 
-1. **Navigate to server directory**:
-
-   ```bash
-   cd server
-   ```
-
-2. **Install dependencies**:
+1. **Install dependencies**:
 
    ```bash
    uv sync
    ```
 
-3. **Configure environment variables**:
+2. **Configure environment variables**:
 
    ```bash
    cp .env.example .env
-   # Edit .env and add your API keys
+   # Edit .env and add your OpenAI and LiveKit credentials
    ```
 
-4. **Run the bot**:
+3. **Run the bot**:
 
-   - SmallWebRTC: `uv run bot.py`
+   ```bash
+   uv run main.py -t livekit
+   ```
+
+### Flutter / Frontend Connection Flow
+
+1. Call backend endpoint: `GET /livekit/token?session=<session_id>`
+2. Receive JSON with `url`, `room`, `identity`, `token`
+3. In Flutter LiveKit client, connect using returned `url` and `token`
+
+Example token response shape:
+
+```json
+{
+  "url": "wss://<project>.livekit.cloud",
+  "room": "my-session-id",
+  "identity": "mobile-user-123",
+  "token": "<jwt>",
+  "ttl_seconds": 900
+}
+```
 
 ### Railway deployment note
 
 - The app must listen on `0.0.0.0:$PORT` in Railway.
-- `bot.py` now auto-uses `HOST` (default `0.0.0.0`) and `PORT` (default `7860`) when starting.
-- For Pipecat versions that expose the FastAPI app object, `bot.py` also registers `GET /health`.
+- `main.py` auto-uses `HOST` (default `0.0.0.0`) and `PORT` (default `7860`) when starting.
+- For Pipecat versions that expose the FastAPI app object, `main.py` registers `GET /health` and `GET /livekit/token`.
 
 ## Project Structure
 
 ```
-my-voice-bot/
-├── server/              # Python bot server
-│   ├── bot.py           # Main bot implementation
-│   ├── pyproject.toml   # Python dependencies
-│   ├── .env.example     # Environment variables template
-│   ├── .env             # Your API keys (git-ignored)
-│   └── ...
-├── .gitignore           # Git ignore patterns
+pipecat_voice_service/
+├── main.py              # Main bot + endpoint registration
+├── pyproject.toml       # Python dependencies
+├── .env.example         # Environment variables template
+├── .env                 # Your API keys (git-ignored)
 └── README.md            # This file
 ```
 ## Learn More
