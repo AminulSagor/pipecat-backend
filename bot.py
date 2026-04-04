@@ -150,11 +150,21 @@ async def bot(runner_args: RunnerArguments):
 
 
 if __name__ == "__main__":
-    from pipecat.runner.run import app, main
+    from pipecat.runner.run import main
 
-    @app.get("/health", include_in_schema=False)
-    async def healthcheck():
-        return {"status": "ok"}
+    # Register a health route only when this Pipecat version exposes the FastAPI app.
+    try:
+        import pipecat.runner.run as runner_run
+
+        runner_app = getattr(runner_run, "app", None)
+        if runner_app is not None:
+
+            @runner_app.get("/health", include_in_schema=False)
+            async def healthcheck():
+                return {"status": "ok"}
+    except Exception:
+        # Some Pipecat versions don't expose the app object; startup should still proceed.
+        pass
 
     # Railway requires binding to all interfaces on the provided PORT.
     host = os.getenv("HOST", "0.0.0.0")
