@@ -1,4 +1,5 @@
 import os
+import sys
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -150,5 +151,15 @@ async def bot(runner_args: RunnerArguments):
 
 if __name__ == "__main__":
     from pipecat.runner.run import main
+
+    # Railway requires binding to all interfaces on the provided PORT.
+    host = os.getenv("HOST", "0.0.0.0")
+    port = os.getenv("PORT", "7860")
+
+    if "--host" not in sys.argv:
+        sys.argv.extend(["--host", host])
+
+    if "--port" not in sys.argv:
+        sys.argv.extend(["--port", str(port)])
 
     main()
