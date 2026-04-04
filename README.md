@@ -42,6 +42,7 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
 
 - The app must listen on `0.0.0.0:$PORT` in Railway.
 - `bot.py` now auto-uses `HOST` (default `0.0.0.0`) and `PORT` (default `7860`) when starting.
+- A lightweight `GET /health` endpoint is exposed for Railway health checks.
 
 ## Project Structure
 

@@ -150,7 +150,11 @@ async def bot(runner_args: RunnerArguments):
 
 
 if __name__ == "__main__":
-    from pipecat.runner.run import main
+    from pipecat.runner.run import app, main
+
+    @app.get("/health", include_in_schema=False)
+    async def healthcheck():
+        return {"status": "ok"}
 
     # Railway requires binding to all interfaces on the provided PORT.
     host = os.getenv("HOST", "0.0.0.0")
