@@ -55,13 +55,6 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             language="en",
         ),
     )
-    # stt = OpenAISTTService(
-    #     api_key=os.getenv("OPENAI_API_KEY"),
-    #     settings=OpenAISTTService.Settings(
-    #         model="whisper-1",
-    #         language="en",
-    #     ),
-    # )
 
     llm = OpenAILLMService(
         api_key=os.getenv("OPENAI_API_KEY"),
@@ -149,10 +142,25 @@ async def bot(runner_args: RunnerArguments):
     await run_bot(transport, runner_args)
 
 
+def ensure_cli_arg(flag: str, value: str):
+    if flag not in sys.argv:
+        sys.argv.extend([flag, value])
+
+
 if __name__ == "__main__":
     from pipecat.runner.run import main
 
-    # Register a health route only when this Pipecat version exposes the FastAPI app.
+    host = "0.0.0.0"
+    port = os.getenv("PORT", "8080")
+
+    print("======== Railway boot debug ========")
+    print(f"ENV PORT        : {os.getenv('PORT')}")
+    print(f"Resolved host   : {host}")
+    print(f"Resolved port   : {port}")
+    print(f"Initial argv    : {sys.argv}")
+    print("====================================")
+
+    # Register health route if Pipecat exposes the FastAPI app object.
     try:
         import pipecat.runner.run as runner_run
 
@@ -161,19 +169,20 @@ if __name__ == "__main__":
 
             @runner_app.get("/health", include_in_schema=False)
             async def healthcheck():
-                return {"status": "ok"}
-    except Exception:
-        # Some Pipecat versions don't expose the app object; startup should still proceed.
-        pass
+                return {
+                    "status": "ok",
+                    "port": port,
+                }
 
-    # Railway requires binding to all interfaces on the provided PORT.
-    host = os.getenv("HOST", "0.0.0.0")
-    port = os.getenv("PORT", "7860")
+            print("Health route registered at /health")
+        else:
+            print("Pipecat runner app not exposed; /health route not registered")
+    except Exception as e:
+        print(f"Health route registration skipped: {e}")
 
-    if "--host" not in sys.argv:
-        sys.argv.extend(["--host", host])
+    ensure_cli_arg("--host", host)
+    ensure_cli_arg("--port", str(port))
 
-    if "--port" not in sys.argv:
-        sys.argv.extend(["--port", str(port)])
-
+    print(f"Final argv      : {sys.argv}")
+    print("Starting Pipecat...")
     main()
