@@ -42,9 +42,12 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
 
 ### Flutter / Frontend Connection Flow
 
-1. Call backend endpoint: `GET /livekit/token?session=<session_id>`
-2. Receive JSON with `url`, `room`, `identity`, `token`
-3. In Flutter LiveKit client, connect using returned `url` and `token`
+1. Set one shared session value for both services, for example: `LIVEKIT_SESSION=session-abc123`
+2. Start Token API and Bot Worker with that same environment.
+3. Call backend endpoint: `GET /livekit/token?session=<session_id>`
+   - You can pass the same value as `LIVEKIT_SESSION`, or omit `session` and let backend default to `LIVEKIT_SESSION`.
+4. Receive JSON with `url`, `room`, `identity`, `token`
+5. In Flutter LiveKit client, connect using returned `url` and `token`
 
 Example token response shape:
 

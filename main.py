@@ -23,7 +23,7 @@ from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.livekit.transport import LiveKitParams, LiveKitTransport
 
-from livekit_auth import build_livekit_token
+from livekit_auth import build_livekit_token, sanitize_livekit_name
 
 load_dotenv(override=True)
 
@@ -41,12 +41,16 @@ def build_system_instruction() -> str:
 
 def create_livekit_transport() -> LiveKitTransport:
     url = os.getenv("LIVEKIT_URL")
-    room_name = os.getenv("LIVEKIT_ROOM_NAME", "voice-room")
+    livekit_session = (os.getenv("LIVEKIT_SESSION") or "").strip()
+    room_name = sanitize_livekit_name(livekit_session, "voice-room")
     bot_identity = os.getenv("LIVEKIT_BOT_IDENTITY", "voice-bot")
     bot_token = os.getenv("LIVEKIT_BOT_TOKEN")
 
     if not url:
         raise RuntimeError("LIVEKIT_URL is required")
+
+    if not livekit_session:
+        raise RuntimeError("LIVEKIT_SESSION is required for bot worker room selection")
 
     if not bot_token:
         token_ttl_seconds = int(os.getenv("LIVEKIT_BOT_TOKEN_TTL_SECONDS", "3600"))
