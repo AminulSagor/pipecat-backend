@@ -34,10 +34,10 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
    uv run uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}
    ```
 
-4. **Run bot worker (Service B, separate worker/background service)**:
+4. **Run bot worker directly (optional, local/manual only)**:
 
    ```bash
-   uv run python main.py
+   uv run python main.py --session-id my-test-session
    ```
 
 ### Session Orchestration API
@@ -97,9 +97,9 @@ Example token response shape:
 
 ### Railway deployment note
 
-- Use two services for clean separation:
+- Orchestration mode uses one web service that spawns per-session workers on demand:
    - Web service command: `uv run uvicorn app:app --host 0.0.0.0 --port $PORT`
-   - Worker service command: `uv run python main.py`
+- Do not run `uv run python main.py` as an always-on background service unless you pass a fixed `--session-id`.
 - Token API starts fast and exposes `GET /health` and `GET /livekit/token`.
 - Token API also exposes `POST /session/start` and `POST /session/end` for worker orchestration.
 - Bot worker is isolated from web boot path and only handles LiveKit/Pipecat session logic.

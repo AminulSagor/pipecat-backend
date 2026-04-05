@@ -170,14 +170,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_session_id(cli_session_id: str | None) -> str:
+def resolve_session_id(cli_session_id: str | None) -> str | None:
     value = (cli_session_id or "").strip() or (os.getenv("LIVEKIT_SESSION") or "").strip()
     if not value:
-        raise RuntimeError("session_id is required (--session-id or LIVEKIT_SESSION)")
+        return None
     return sanitize_livekit_name(value, "voice-room")
 
 
 if __name__ == "__main__":
     args = parse_args()
     session_id = resolve_session_id(args.session_id)
+    if not session_id:
+        logger.warning(
+            "No session id provided. Worker expects --session-id from session orchestration API; "
+            "exiting idle."
+        )
+        raise SystemExit(0)
     asyncio.run(bot_worker(session_id))
