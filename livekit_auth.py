@@ -28,6 +28,7 @@ def build_livekit_token(room: str, identity: str, ttl_seconds: int) -> str:
                 room_join=True,
                 room=room,
                 can_publish=True,
+                can_publish_data=True,
                 can_subscribe=True,
             )
         )

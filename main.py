@@ -1,6 +1,9 @@
 import asyncio
 import argparse
+import json
 import os
+from datetime import UTC, datetime
+from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -27,6 +30,10 @@ from pipecat.transports.livekit.transport import LiveKitParams, LiveKitTransport
 from livekit_auth import build_livekit_token, sanitize_livekit_name
 
 load_dotenv(override=True)
+
+TRANSCRIPT_TOPIC = "transcript.v1"
+TRANSCRIPT_TYPE = "transcript"
+TRANSCRIPT_VERSION = 1
 
 
 def build_system_instruction() -> str:
@@ -67,7 +74,56 @@ def create_livekit_transport(session_id: str) -> LiveKitTransport:
     )
 
 
-async def run_bot(transport: BaseTransport):
+def utc_timestamp() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def resolve_livekit_room(transport: Any) -> Any | None:
+    direct_room = getattr(transport, "room", None)
+    if direct_room is not None:
+        return direct_room
+
+    fallback_attrs = ["_room", "_lk_room", "livekit_room"]
+    for attr in fallback_attrs:
+        room = getattr(transport, attr, None)
+        if room is not None:
+            return room
+
+    nested_parent_attrs = ["_client", "client", "_transport", "transport"]
+    nested_room_attrs = ["room", "_room", "_lk_room", "livekit_room"]
+
+    for parent_attr in nested_parent_attrs:
+        parent = getattr(transport, parent_attr, None)
+        if parent is None:
+            continue
+        for room_attr in nested_room_attrs:
+            room = getattr(parent, room_attr, None)
+            if room is not None:
+                return room
+
+    return None
+
+
+def extract_turn_text(*args: Any, **kwargs: Any) -> str | None:
+    for key in ("text", "transcript", "content", "message"):
+        value = kwargs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    for arg in reversed(args):
+        if isinstance(arg, str) and arg.strip():
+            return arg.strip()
+
+    for arg in reversed(args):
+        for attr in ("text", "transcript", "content", "message"):
+            value = getattr(arg, attr, None)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    return None
+
+
+async def run_bot(session_id: str, transport: BaseTransport):
     logger.info("Starting OpenAI voice bot")
 
     stt = OpenAISTTService(
@@ -134,9 +190,54 @@ async def run_bot(transport: BaseTransport):
         idle_timeout_secs=int(os.getenv("PIPELINE_IDLE_TIMEOUT_SECS", "0")) or None,
     )
 
+    livekit_room: Any | None = None
+
+    async def publish_final_transcript(role: str, text: str) -> None:
+        nonlocal livekit_room
+
+        clean_text = (text or "").strip()
+        if not clean_text:
+            return
+
+        room = livekit_room or resolve_livekit_room(transport)
+        if room is None:
+            logger.warning("Transcript skipped: no LiveKit room resolved")
+            return
+
+        livekit_room = room
+        participant = getattr(room, "local_participant", None)
+        if participant is None:
+            logger.warning("Transcript skipped: missing local participant")
+            return
+
+        payload = {
+            "type": TRANSCRIPT_TYPE,
+            "version": TRANSCRIPT_VERSION,
+            "role": role,
+            "text": clean_text,
+            "timestamp": utc_timestamp(),
+            "final": True,
+            "sessionId": session_id,
+        }
+
+        try:
+            result = participant.publish_data(
+                json.dumps(payload),
+                reliable=True,
+                topic=TRANSCRIPT_TOPIC,
+            )
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as exc:
+            logger.warning(f"Transcript publish failed: {exc}")
+
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
+        nonlocal livekit_room
         logger.info("Client connected")
+        livekit_room = resolve_livekit_room(transport)
+        if livekit_room is None:
+            logger.warning("LiveKit room not found on transport at connect time")
 
         context.add_message(
             {
@@ -155,13 +256,25 @@ async def run_bot(transport: BaseTransport):
         logger.info("Client disconnected")
         await task.cancel()
 
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(*args, **kwargs):
+        text = extract_turn_text(*args, **kwargs)
+        if text:
+            await publish_final_transcript("user", text)
+
+    @assistant_aggregator.event_handler("on_assistant_turn_stopped")
+    async def on_assistant_turn_stopped(*args, **kwargs):
+        text = extract_turn_text(*args, **kwargs)
+        if text:
+            await publish_final_transcript("assistant", text)
+
     runner = PipelineRunner(handle_sigint=True)
     await runner.run(task)
 
 
 async def bot_worker(session_id: str):
     transport = create_livekit_transport(session_id)
-    await run_bot(transport)
+    await run_bot(session_id, transport)
 
 
 def parse_args() -> argparse.Namespace:

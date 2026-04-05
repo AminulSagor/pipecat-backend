@@ -119,6 +119,130 @@ Important integration rule:
 
 - Do not generate room or session ids on the client. The backend-generated `sessionId` is the canonical value.
 
+### Transcript Data Channel Integration (Flutter)
+
+The bot now publishes final transcript messages into the same LiveKit room data channel used by the call session.
+
+- Topic: `transcript.v1`
+- Delivery mode: `reliable=true`
+- Packet type: small JSON payloads
+- Events emitted by backend:
+    - final user transcript after VAD ends the user turn (`on_user_turn_stopped`)
+    - final assistant transcript when assistant turn ends (`on_assistant_turn_stopped`)
+
+This is intentionally final-only with the current STT stack (`OpenAISTTService`), so user text appears after speech ends, not word-by-word.
+
+#### Transcript payload schema
+
+Each packet on topic `transcript.v1` has this shape:
+
+```json
+{
+   "type": "transcript",
+   "version": 1,
+   "role": "user",
+   "text": "hello, can you help me book a flight",
+   "timestamp": "2026-04-05T11:20:14.402013Z",
+   "final": true,
+   "sessionId": "f9db2c39-1f5d-4e27-a868-fb08d0f22722"
+}
+```
+
+Field notes:
+
+- `role`: `user` or `assistant`
+- `final`: always `true` in current implementation
+- `sessionId`: backend-resolved worker session id (same value returned by `/session/start`)
+
+#### Flutter handling steps
+
+1. Call `GET /session/start` and store returned `sessionId`.
+2. Connect to LiveKit using returned `url` and `token`.
+3. Subscribe to room data messages.
+4. Filter for topic `transcript.v1`.
+5. Parse JSON and ignore packets where `type != transcript` or `version != 1`.
+6. Optionally ignore packets whose `sessionId` does not match local active session.
+7. Render `role=user` as user bubble and `role=assistant` as assistant bubble.
+
+#### Flutter example (Dart)
+
+```dart
+import 'dart:convert';
+
+import 'package:livekit_client/livekit_client.dart';
+
+class TranscriptMessage {
+   final String type;
+   final int version;
+   final String role;
+   final String text;
+   final String timestamp;
+   final bool finalFlag;
+   final String sessionId;
+
+   TranscriptMessage({
+      required this.type,
+      required this.version,
+      required this.role,
+      required this.text,
+      required this.timestamp,
+      required this.finalFlag,
+      required this.sessionId,
+   });
+
+   static TranscriptMessage? fromJson(Map<String, dynamic> json) {
+      if (json['type'] != 'transcript') return null;
+      if (json['version'] != 1) return null;
+      final role = json['role'];
+      final text = json['text'];
+      final timestamp = json['timestamp'];
+      final finalFlag = json['final'];
+      final sessionId = json['sessionId'];
+      if (role is! String || text is! String || timestamp is! String || finalFlag is! bool || sessionId is! String) {
+         return null;
+      }
+      return TranscriptMessage(
+         type: 'transcript',
+         version: 1,
+         role: role,
+         text: text,
+         timestamp: timestamp,
+         finalFlag: finalFlag,
+         sessionId: sessionId,
+      );
+   }
+}
+
+void attachTranscriptListener(Room room, String activeSessionId, void Function(TranscriptMessage msg) onTranscript) {
+   room.events.listen((event) {
+      if (event is! DataReceivedEvent) return;
+      if (event.topic != 'transcript.v1') return;
+
+      final raw = utf8.decode(event.data);
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return;
+
+      final message = TranscriptMessage.fromJson(decoded);
+      if (message == null) return;
+      if (message.sessionId != activeSessionId) return;
+
+      onTranscript(message);
+   });
+}
+```
+
+#### UI recommendations
+
+- Keep transcript state ordered by receive time; `reliable=true` provides ordered delivery per sender.
+- Show role-based styling (`user` vs `assistant`).
+- Do not wait for `final=false` updates; current backend emits final packets only.
+- If the assistant is interrupted, still handle the final assistant packet for that partial completion.
+
+#### Backend permission requirement
+
+Token grants include `can_publish_data=true` so bot and clients can publish/receive data packets in the room.
+If you mint tokens outside this service, make sure that grant is also enabled.
+
 Fallback endpoint remains available:
 
 - `GET /livekit/token?session=<session_id>`
