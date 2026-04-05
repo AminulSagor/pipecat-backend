@@ -1,6 +1,6 @@
 import os
 import uuid
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from dotenv import load_dotenv
 from livekit_auth import build_livekit_token, sanitize_livekit_name
@@ -10,14 +10,6 @@ load_dotenv()
 
 app = FastAPI()
 session_manager = SessionManager()
-
-
-class SessionStartRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    session_id: str = Field(..., alias="sessionId", min_length=1)
-    identity: str | None = None
-    ttl_seconds: int = Field(default=900, alias="ttlSeconds", ge=60, le=3600)
 
 
 class SessionStartResponse(BaseModel):
@@ -93,15 +85,18 @@ async def livekit_token(
     }
 
 
-@app.post("/session/start", response_model=SessionStartResponse)
-async def session_start(payload: SessionStartRequest):
-    room = sanitize_livekit_name(payload.session_id, "voice-room")
-    user_identity = sanitize_livekit_name(payload.identity or str(uuid.uuid4()), "guest")
+@app.get("/session/start", response_model=SessionStartResponse)
+async def session_start(
+    identity: str | None = None,
+    ttl_seconds: int = Query(default=900, alias="ttlSeconds", ge=60, le=3600),
+):
+    room = sanitize_livekit_name(str(uuid.uuid4()), "voice-room")
+    user_identity = sanitize_livekit_name(identity or str(uuid.uuid4()), "guest")
 
     session_details = session_manager.start_session(room)
 
     try:
-        token = build_livekit_token(room, user_identity, payload.ttl_seconds)
+        token = build_livekit_token(room, user_identity, ttl_seconds)
     except RuntimeError as exc:
         if session_details.get("created"):
             session_manager.end_session(room)
@@ -117,7 +112,7 @@ async def session_start(payload: SessionStartRequest):
         room=room,
         identity=user_identity,
         token=token,
-        ttlSeconds=payload.ttl_seconds,
+        ttlSeconds=ttl_seconds,
     )
 
 

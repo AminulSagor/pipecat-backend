@@ -44,19 +44,43 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
 
 The API can start and stop a dedicated bot worker per session.
 
-- `POST /session/start`
-   - Body:
+- `GET /session/start`
+   - Query params (optional):
+      - `identity` (string): caller identity. If omitted, backend generates one.
+      - `ttlSeconds` (int, default `900`, min `60`, max `3600`): token TTL.
+
+   - Behavior:
+      - Backend generates a new session id (source of truth).
+      - Backend sanitizes that value and uses it as both `sessionId` and LiveKit `room`.
+      - Starts a worker process with `--session-id <generated-session-id>`.
+      - Returns LiveKit details (`url`, `room`, `identity`, `token`) for that same generated room.
+
+   - Example request:
+
+      ```bash
+      curl "http://localhost:8080/session/start?identity=mobile-user-123&ttlSeconds=900"
+      ```
+
+   - Example response:
 
       ```json
       {
-         "sessionId": "abc123"
+        "sessionId": "f9db2c39-1f5d-4e27-a868-fb08d0f22722",
+        "status": "running",
+        "created": true,
+        "pid": 48102,
+        "startedAt": "2026-04-05T11:20:14.402013+00:00",
+        "url": "wss://<project>.livekit.cloud",
+        "room": "f9db2c39-1f5d-4e27-a868-fb08d0f22722",
+        "identity": "mobile-user-123",
+        "token": "<jwt>",
+        "ttlSeconds": 900
       }
       ```
 
-   - Behavior:
-      - Starts a worker process with `--session-id abc123`.
-      - Returns LiveKit details (`url`, `room`, `identity`, `token`) for the same room.
-      - Idempotent for active sessions: repeated calls return existing worker details.
+   - Notes:
+      - `sessionId` and `room` are equivalent for join/stop operations.
+      - Each call creates a new backend-generated session.
 
 - `POST /session/end`
    - Body:
@@ -74,10 +98,26 @@ The API can start and stop a dedicated bot worker per session.
 
 ### Flutter / Frontend Connection Flow
 
-1. Call `POST /session/start` with `sessionId`.
-2. Receive JSON with `url`, `room`, `identity`, `token`.
-3. In Flutter LiveKit client, connect using returned `url` and `token`.
-4. When call/session is finished, call `POST /session/end` with the same `sessionId`.
+1. Call `GET /session/start` (optionally pass `identity` and `ttlSeconds`).
+2. Receive JSON with backend-generated `sessionId`, plus `url`, `room`, `identity`, `token`.
+3. Persist the returned `sessionId` on the frontend (local state/store) for session lifecycle actions.
+4. In Flutter LiveKit client, connect using returned `url` and `token`.
+5. Treat backend response as source of truth: use returned `room` for joins and returned `sessionId` for stop requests.
+6. When call/session is finished, call `POST /session/end` with that same returned `sessionId`.
+
+Recommended frontend pseudo-flow:
+
+```text
+GET /session/start
+   -> store sessionId
+   -> connect LiveKit(url, token)
+   -> UI/session active
+   -> POST /session/end { sessionId }
+```
+
+Important integration rule:
+
+- Do not generate room or session ids on the client. The backend-generated `sessionId` is the canonical value.
 
 Fallback endpoint remains available:
 
@@ -101,7 +141,7 @@ Example token response shape:
    - Web service command: `uv run uvicorn app:app --host 0.0.0.0 --port $PORT`
 - Do not run `uv run python main.py` as an always-on background service unless you pass a fixed `--session-id`.
 - Token API starts fast and exposes `GET /health` and `GET /livekit/token`.
-- Token API also exposes `POST /session/start` and `POST /session/end` for worker orchestration.
+- Token API also exposes `GET /session/start` and `POST /session/end` for worker orchestration.
 - Bot worker is isolated from web boot path and only handles LiveKit/Pipecat session logic.
 - Worker startup does not use Pipecat runner CLI or WebRTC transport mode.
 
