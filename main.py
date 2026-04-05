@@ -1,5 +1,5 @@
+import asyncio
 import os
-import sys
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -17,22 +17,15 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.runner.types import RunnerArguments
-from pipecat.runner.utils import create_transport
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.transports.base_transport import BaseTransport
-from pipecat.transports.livekit.transport import LiveKitParams
+from pipecat.transports.livekit.transport import LiveKitParams, LiveKitTransport
+
+from livekit_auth import build_livekit_token
 
 load_dotenv(override=True)
-
-transport_params = {
-    "livekit": lambda: LiveKitParams(
-        audio_in_enabled=True,
-        audio_out_enabled=True,
-    ),
-}
 
 
 def build_system_instruction() -> str:
@@ -46,7 +39,31 @@ def build_system_instruction() -> str:
     )
 
 
-async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
+def create_livekit_transport() -> LiveKitTransport:
+    url = os.getenv("LIVEKIT_URL")
+    room_name = os.getenv("LIVEKIT_ROOM_NAME", "voice-room")
+    bot_identity = os.getenv("LIVEKIT_BOT_IDENTITY", "voice-bot")
+    bot_token = os.getenv("LIVEKIT_BOT_TOKEN")
+
+    if not url:
+        raise RuntimeError("LIVEKIT_URL is required")
+
+    if not bot_token:
+        token_ttl_seconds = int(os.getenv("LIVEKIT_BOT_TOKEN_TTL_SECONDS", "3600"))
+        bot_token = build_livekit_token(room_name, bot_identity, token_ttl_seconds)
+
+    return LiveKitTransport(
+        url=url,
+        token=bot_token,
+        room_name=room_name,
+        params=LiveKitParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+        ),
+    )
+
+
+async def run_bot(transport: BaseTransport):
     logger.info("Starting OpenAI voice bot")
 
     stt = OpenAISTTService(
@@ -110,7 +127,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
+        idle_timeout_secs=int(os.getenv("PIPELINE_IDLE_TIMEOUT_SECS", "0")) or None,
     )
 
     @transport.event_handler("on_client_connected")
@@ -134,37 +151,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         logger.info("Client disconnected")
         await task.cancel()
 
-    runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
+    runner = PipelineRunner(handle_sigint=True)
     await runner.run(task)
 
 
-async def bot(runner_args: RunnerArguments):
-    transport = await create_transport(runner_args, transport_params)
-    await run_bot(transport, runner_args)
-
-
-def ensure_cli_arg(flag: str, value: str):
-    if flag not in sys.argv:
-        sys.argv.extend([flag, value])
+async def bot_worker():
+    transport = create_livekit_transport()
+    await run_bot(transport)
 
 
 if __name__ == "__main__":
-    from pipecat.runner.run import main
-
-    host = "0.0.0.0"
-    port = os.getenv("PORT", "8080")
-
-    print("======== Railway boot debug ========")
-    print(f"ENV PORT        : {os.getenv('PORT')}")
-    print(f"Resolved host   : {host}")
-    print(f"Resolved port   : {port}")
-    print(f"Initial argv    : {sys.argv}")
-    print("====================================")
-
-    ensure_cli_arg("--host", host)
-    ensure_cli_arg("--port", str(port))
-    # ensure_cli_arg("-t", "webrtc")
-
-    print(f"Final argv      : {sys.argv}")
-    print("Starting Pipecat...")
-    main()
+    asyncio.run(bot_worker())
