@@ -54,7 +54,7 @@ The API can start and stop a dedicated bot worker per session.
       ```
 
    - Behavior:
-      - Starts a worker process with `LIVEKIT_SESSION=abc123`.
+      - Starts a worker process with `--session-id abc123`.
       - Returns LiveKit details (`url`, `room`, `identity`, `token`) for the same room.
       - Idempotent for active sessions: repeated calls return existing worker details.
 

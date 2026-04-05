@@ -1,4 +1,5 @@
 import asyncio
+import argparse
 import os
 
 from dotenv import load_dotenv
@@ -39,18 +40,17 @@ def build_system_instruction() -> str:
     )
 
 
-def create_livekit_transport() -> LiveKitTransport:
+def create_livekit_transport(session_id: str) -> LiveKitTransport:
     url = os.getenv("LIVEKIT_URL")
-    livekit_session = (os.getenv("LIVEKIT_SESSION") or "").strip()
-    room_name = sanitize_livekit_name(livekit_session, "voice-room")
+    room_name = sanitize_livekit_name(session_id, "voice-room")
     bot_identity = os.getenv("LIVEKIT_BOT_IDENTITY", "voice-bot")
     bot_token = os.getenv("LIVEKIT_BOT_TOKEN")
 
     if not url:
         raise RuntimeError("LIVEKIT_URL is required")
 
-    if not livekit_session:
-        raise RuntimeError("LIVEKIT_SESSION is required for bot worker room selection")
+    if not session_id.strip():
+        raise RuntimeError("session_id is required for bot worker room selection")
 
     if not bot_token:
         token_ttl_seconds = int(os.getenv("LIVEKIT_BOT_TOKEN_TTL_SECONDS", "3600"))
@@ -159,10 +159,25 @@ async def run_bot(transport: BaseTransport):
     await runner.run(task)
 
 
-async def bot_worker():
-    transport = create_livekit_transport()
+async def bot_worker(session_id: str):
+    transport = create_livekit_transport(session_id)
     await run_bot(transport)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run a LiveKit voice bot worker")
+    parser.add_argument("--session-id", dest="session_id", default=None)
+    return parser.parse_args()
+
+
+def resolve_session_id(cli_session_id: str | None) -> str:
+    value = (cli_session_id or "").strip() or (os.getenv("LIVEKIT_SESSION") or "").strip()
+    if not value:
+        raise RuntimeError("session_id is required (--session-id or LIVEKIT_SESSION)")
+    return sanitize_livekit_name(value, "voice-room")
+
+
 if __name__ == "__main__":
-    asyncio.run(bot_worker())
+    args = parse_args()
+    session_id = resolve_session_id(args.session_id)
+    asyncio.run(bot_worker(session_id))

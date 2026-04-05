@@ -1,4 +1,3 @@
-import os
 import signal
 import subprocess
 import sys
@@ -20,11 +19,6 @@ class SessionManager:
         self._worker_script = str(Path(__file__).resolve().parent / worker_script)
         self._lock = threading.Lock()
         self._sessions: dict[str, SessionProcess] = {}
-
-    def _build_worker_env(self, session_id: str) -> dict[str, str]:
-        env = os.environ.copy()
-        env["LIVEKIT_SESSION"] = session_id
-        return env
 
     def _is_alive(self, process: subprocess.Popen) -> bool:
         return process.poll() is None
@@ -48,8 +42,7 @@ class SessionManager:
                 }
 
             process = subprocess.Popen(
-                [sys.executable, "-u", self._worker_script],
-                env=self._build_worker_env(session_id),
+                [sys.executable, "-u", self._worker_script, "--session-id", session_id],
             )
             current = SessionProcess(
                 session_id=session_id,
