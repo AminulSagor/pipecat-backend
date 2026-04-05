@@ -1,6 +1,7 @@
 import os
+from datetime import timedelta
 
-from pipecat.runner.livekit import generate_token
+from livekit import api
 
 
 def sanitize_livekit_name(value: str, fallback: str) -> str:
@@ -14,19 +15,23 @@ def sanitize_livekit_name(value: str, fallback: str) -> str:
 def build_livekit_token(room: str, identity: str, ttl_seconds: int) -> str:
     api_key = os.getenv("LIVEKIT_API_KEY")
     api_secret = os.getenv("LIVEKIT_API_SECRET")
+
     if not api_key or not api_secret:
         raise RuntimeError("LIVEKIT_API_KEY/LIVEKIT_API_SECRET are required")
 
-    try:
-        token = generate_token(
-            api_key=api_key,
-            api_secret=api_secret,
-            room_name=room,
-            participant_name=identity,
-            ttl=ttl_seconds,
+    token = (
+        api.AccessToken(api_key, api_secret)
+        .with_identity(identity)
+        .with_name(identity)
+        .with_grants(
+            api.VideoGrants(
+                room_join=True,
+                room=room,
+                can_publish=True,
+                can_subscribe=True,
+            )
         )
-    except TypeError:
-        # Compatibility fallback for older/newer Pipecat signatures.
-        token = generate_token(api_key, api_secret, room, identity, ttl_seconds)
+        .with_ttl(timedelta(seconds=ttl_seconds))
+    )
 
-    return token
+    return token.to_jwt()
