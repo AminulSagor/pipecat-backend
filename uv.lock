@@ -1334,6 +1334,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "livekit-api" },
     { name = "pipecat-ai", extra = ["livekit", "openai", "runner"] },
     { name = "uvicorn" },
 ]
@@ -1347,6 +1348,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0,<1" },
+    { name = "livekit-api", specifier = ">=1.0.5,<2" },
     { name = "pipecat-ai", extras = ["openai", "runner", "silero", "livekit"] },
     { name = "uvicorn", specifier = ">=0.30.0,<1" },
 ]
