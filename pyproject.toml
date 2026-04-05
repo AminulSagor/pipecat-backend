@@ -26,4 +26,4 @@ line-length = 100
 select = ["I"]
 
 [tool.setuptools]
-py-modules = ["app", "main", "livekit_auth"]
+py-modules = ["app", "main", "livekit_auth", "session_manager"]

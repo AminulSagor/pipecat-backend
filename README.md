@@ -40,14 +40,48 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
    uv run python main.py
    ```
 
+### Session Orchestration API
+
+The API can start and stop a dedicated bot worker per session.
+
+- `POST /session/start`
+   - Body:
+
+      ```json
+      {
+         "sessionId": "abc123"
+      }
+      ```
+
+   - Behavior:
+      - Starts a worker process with `LIVEKIT_SESSION=abc123`.
+      - Returns LiveKit details (`url`, `room`, `identity`, `token`) for the same room.
+      - Idempotent for active sessions: repeated calls return existing worker details.
+
+- `POST /session/end`
+   - Body:
+
+      ```json
+      {
+         "sessionId": "abc123"
+      }
+      ```
+
+   - Behavior:
+      - Stops the worker process for that session.
+      - Cleans up in-memory process state.
+      - Idempotent for missing sessions: returns `already_stopped`.
+
 ### Flutter / Frontend Connection Flow
 
-1. Set one shared session value for both services, for example: `LIVEKIT_SESSION=session-abc123`
-2. Start Token API and Bot Worker with that same environment.
-3. Call backend endpoint: `GET /livekit/token?session=<session_id>`
-   - You can pass the same value as `LIVEKIT_SESSION`, or omit `session` and let backend default to `LIVEKIT_SESSION`.
-4. Receive JSON with `url`, `room`, `identity`, `token`
-5. In Flutter LiveKit client, connect using returned `url` and `token`
+1. Call `POST /session/start` with `sessionId`.
+2. Receive JSON with `url`, `room`, `identity`, `token`.
+3. In Flutter LiveKit client, connect using returned `url` and `token`.
+4. When call/session is finished, call `POST /session/end` with the same `sessionId`.
+
+Fallback endpoint remains available:
+
+- `GET /livekit/token?session=<session_id>`
 
 Example token response shape:
 
@@ -67,6 +101,7 @@ Example token response shape:
    - Web service command: `uv run uvicorn app:app --host 0.0.0.0 --port $PORT`
    - Worker service command: `uv run python main.py`
 - Token API starts fast and exposes `GET /health` and `GET /livekit/token`.
+- Token API also exposes `POST /session/start` and `POST /session/end` for worker orchestration.
 - Bot worker is isolated from web boot path and only handles LiveKit/Pipecat session logic.
 - Worker startup does not use Pipecat runner CLI or WebRTC transport mode.
 
@@ -77,6 +112,7 @@ pipecat_voice_service/
 ├── main.py              # Pipecat bot runner only
 ├── app.py               # FastAPI health + token endpoints (Service A)
 ├── livekit_auth.py      # Shared token helper functions
+├── session_manager.py   # Worker process lifecycle manager
 ├── pyproject.toml       # Python dependencies
 ├── .env.example         # Environment variables template
 ├── .env                 # Your API keys (git-ignored)
