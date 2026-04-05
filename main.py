@@ -163,7 +163,7 @@ if __name__ == "__main__":
 
     ensure_cli_arg("--host", host)
     ensure_cli_arg("--port", str(port))
-    ensure_cli_arg("-t", "livekit")
+    # ensure_cli_arg("-t", "webrtc")
 
     print(f"Final argv      : {sys.argv}")
     print("Starting Pipecat...")
